@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SeqToVid | High-Performance Image Sequence Assembler</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f1115;
+            color: #e2e8f0;
+        }
+        
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .glass-panel {
+            background: rgba(30, 35, 45, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .drop-active {
+            border-color: #3b82f6;
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1a1d24;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+
+        .scanline {
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0.2));
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Navbar -->
+    <nav class="border-b border-white/10 bg-[#0f1115]/90 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-bold shadow-lg shadow-blue-500/20">
+                    S
+                </div>
+                <span class="font-bold text-xl tracking-tight text-white">Seq<span class="text-blue-500">To</span>Vid</span>
+                <span class="text-xs bg-white/5 px-2 py-0.5 rounded border border-white/10 text-gray-400 ml-2">BETA v1.3</span>
+            </div>
+            <div class="text-xs text-gray-500 font-mono hidden sm:block">
+                WEBRTC // WEBCODECS // WASM
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-grow p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        <!-- Left Panel: Configuration -->
+        <div class="lg:col-span-1 space-y-6">
+            
+            <!-- Configuration Card -->
+            <div class="glass-panel rounded-xl p-6">
+                <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+                    Render Settings
+                </h2>
+                
+                <div class="space-y-5">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Frame Rate</label>
+                        <div class="grid grid-cols-4 gap-2">
+                            <button onclick="setFPS(24)" class="fps-btn bg-white/5 hover:bg-blue-600/20 hover:text-blue-400 border border-white/10 rounded px-3 py-2 text-sm font-mono transition-colors active" data-val="24">24</button>
+                            <button onclick="setFPS(30)" class="fps-btn bg-white/5 hover:bg-blue-600/20 hover:text-blue-400 border border-white/10 rounded px-3 py-2 text-sm font-mono transition-colors" data-val="30">30</button>
+                            <button onclick="setFPS(60)" class="fps-btn bg-white/5 hover:bg-blue-600/20 hover:text-blue-400 border border-white/10 rounded px-3 py-2 text-sm font-mono transition-colors" data-val="60">60</button>
+                            <input type="number" id="customFPS" placeholder="Cust" class="bg-black/30 border border-white/10 rounded px-2 text-sm text-center focus:outline-none focus:border-blue-500 text-white" onchange="setCustomFPS(this.value)">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Bitrate (Quality)</label>
+                        <input type="range" id="bitrateSlider" min="2" max="50" value="15" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500">
+                        <div class="flex justify-between text-xs text-gray-500 mt-1 font-mono">
+                            <span>Web (2M)</span>
+                            <span id="bitrateDisplay" class="text-blue-400">15 Mbps</span>
+                            <span>Master (50M)</span>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Resolution Output</label>
+                        <select id="resolutionSelect" class="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
+                            <option value="original">Original Source (Match First Frame)</option>
+                            <option value="1080">Force 1080p (Resize)</option>
+                            <option value="720">Force 720p (Resize)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status Panel -->
+            <div class="glass-panel rounded-xl p-6">
+                <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    Status
+                </h2>
+                <div class="space-y-3 font-mono text-sm">
+                    <div class="flex justify-between border-b border-white/5 pb-2">
+                        <span class="text-gray-500">Status</span>
+                        <span id="statusText" class="text-white">Idle</span>
+                    </div>
+                    <div class="flex justify-between border-b border-white/5 pb-2">
+                        <span class="text-gray-500">Frames</span>
+                        <span id="frameCounter" class="text-white">0 / 0</span>
+                    </div>
+                    <div class="flex justify-between pb-1">
+                        <span class="text-gray-500">Memory</span>
+                        <span id="memoryIndicator" class="text-green-400">Stable</span>
+                    </div>
+                </div>
+                
+                <div id="progressBarContainer" class="w-full bg-gray-800 rounded-full h-2.5 mt-4 overflow-hidden hidden">
+                    <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel: Preview & Drop -->
+        <div class="lg:col-span-2 flex flex-col h-full">
+            
+            <div id="dropZone" class="glass-panel flex-grow rounded-xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center p-12 transition-all relative overflow-hidden group min-h-[400px]">
+                
+                <!-- Background Grid -->
+                <div class="absolute inset-0 opacity-10 pointer-events-none" 
+                     style="background-image: radial-gradient(#4b5563 1px, transparent 1px); background-size: 20px 20px;">
+                </div>
+
+                <!-- Empty State -->
+                <div id="emptyState" class="text-center z-10 pointer-events-none transition-opacity duration-300">
+                    <div class="w-20 h-20 bg-blue-600/20 rounded-full flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform duration-300">
+                        <svg class="w-10 h-10 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                    </div>
+                    <h3 class="text-2xl font-bold text-white mb-2">Drop ZIP Sequence Here</h3>
+                    <p class="text-gray-400 max-w-md mx-auto">Support for PNG, JPG, JPEG sequences. <br>Sorted alphanumerically automatically.</p>
+                </div>
+
+                <!-- Preview Canvas (Hidden initially) -->
+                <canvas id="previewCanvas" class="max-w-full max-h-full shadow-2xl rounded hidden z-20 border border-black"></canvas>
+                <div id="scanlineOverlay" class="absolute inset-0 scanline z-30 hidden"></div>
+                
+                <input type="file" id="fileInput" accept=".zip" class="absolute inset-0 opacity-0 cursor-pointer">
+            </div>
+
+            <!-- Action Bar -->
+            <div class="mt-6 flex justify-end gap-4">
+                <button onclick="location.reload()" class="px-6 py-3 rounded-lg bg-white/5 hover:bg-white/10 text-white font-medium transition-colors border border-white/10 hidden" id="resetBtn">
+                    Reset
+                </button>
+                <button id="processBtn" class="px-8 py-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold shadow-lg shadow-blue-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2" disabled>
+                    <span id="btnText">Start Rendering</span>
+                    <svg id="btnIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </button>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- ES Module Shim for module imports -->
+    <script type="module">
+        import * as Mp4Muxer from 'https://unpkg.com/mp4-muxer@5.1.3/build/mp4-muxer.mjs';
+
+        // --- State ---
+        let selectedFile = null;
+        let config = {
+            fps: 24,
+            bitrate: 15000000, // 15 Mbps
+            width: 0,
+            height: 0
+        };
+        let isProcessing = false;
+
+        // --- UI Elements ---
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const emptyState = document.getElementById('emptyState');
+        const previewCanvas = document.getElementById('previewCanvas');
+        const scanlineOverlay = document.getElementById('scanlineOverlay');
+        const processBtn = document.getElementById('processBtn');
+        const statusText = document.getElementById('statusText');
+        const frameCounter = document.getElementById('frameCounter');
+        const progressBar = document.getElementById('progressBar');
+        const progressContainer = document.getElementById('progressBarContainer');
+        const bitrateSlider = document.getElementById('bitrateSlider');
+        const bitrateDisplay = document.getElementById('bitrateDisplay');
+        const resolutionSelect = document.getElementById('resolutionSelect');
+        const resetBtn = document.getElementById('resetBtn');
+
+        // --- Event Listeners ---
+        
+        // Drag & Drop Styling
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                dropZone.classList.add('drop-active');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('drop-active');
+            }, false);
+        });
+
+        // File Selection
+        fileInput.addEventListener('change', handleFileSelect);
+        dropZone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length) handleFileSelect({ target: { files: files } });
+        });
+
+        // Bitrate Slider
+        bitrateSlider.addEventListener('input', (e) => {
+            const val = e.target.value;
+            config.bitrate = val * 1000000;
+            bitrateDisplay.innerText = `${val} Mbps`;
+        });
+
+        // FPS Buttons
+        window.setFPS = (val) => {
+            config.fps = val;
+            document.querySelectorAll('.fps-btn').forEach(btn => {
+                if(parseInt(btn.dataset.val) === val) btn.classList.add('active', 'bg-blue-600/20', 'text-blue-400');
+                else btn.classList.remove('active', 'bg-blue-600/20', 'text-blue-400');
+            });
+            document.getElementById('customFPS').value = '';
+        };
+
+        window.setCustomFPS = (val) => {
+            if(val && val > 0) {
+                config.fps = parseFloat(val);
+                document.querySelectorAll('.fps-btn').forEach(btn => btn.classList.remove('active', 'bg-blue-600/20', 'text-blue-400'));
+            }
+        };
+
+        // Process Button
+        processBtn.addEventListener('click', startProcessing);
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file && file.name.endsWith('.zip')) {
+                selectedFile = file;
+                statusText.innerText = `Loaded: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+                emptyState.style.opacity = '0.5';
+                emptyState.innerHTML = `<h3 class="text-xl font-bold text-blue-400 mb-2">${file.name}</h3><p class="text-gray-400">Ready to extract</p>`;
+                processBtn.disabled = false;
+            } else {
+                alert('Please select a valid ZIP file.');
+            }
+        }
+
+        // --- Core Logic ---
+
+        async function startProcessing() {
+            if (!selectedFile || isProcessing) return;
+            isProcessing = true;
+            processBtn.disabled = true;
+            processBtn.innerHTML = `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Processing...`;
+            progressContainer.classList.remove('hidden');
+            emptyState.classList.add('hidden');
+            previewCanvas.classList.remove('hidden');
+            scanlineOverlay.classList.remove('hidden');
+            resetBtn.classList.remove('hidden');
+
+            try {
+                statusText.innerText = "Reading Zip Directory...";
+                const zip = new JSZip();
+                const zipContent = await zip.loadAsync(selectedFile);
+                
+                // Filter and Sort Images
+                const imageFiles = Object.keys(zipContent.files).filter(filename => {
+                    return !zipContent.files[filename].dir && /\.(png|jpg|jpeg)$/i.test(filename);
+                }).sort((a, b) => {
+                    return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+                });
+
+                if (imageFiles.length === 0) throw new Error("No images found in ZIP");
+
+                statusText.innerText = `Found ${imageFiles.length} frames. Analyzing first frame...`;
+
+                // --- Step 1: Analyze Dimensions from First Frame ---
+                const firstFrameData = await zipContent.files[imageFiles[0]].async('blob');
+                const firstBitmap = await createImageBitmap(firstFrameData);
+                
+                // Determine Resolution
+                let targetW = firstBitmap.width;
+                let targetH = firstBitmap.height;
+                
+                if (resolutionSelect.value === '1080') {
+                    targetH = 1080;
+                    targetW = Math.round((firstBitmap.width * (1080 / firstBitmap.height)) / 2) * 2; // Ensure even
+                } else if (resolutionSelect.value === '720') {
+                    targetH = 720;
+                    targetW = Math.round((firstBitmap.width * (720 / firstBitmap.height)) / 2) * 2;
+                } else {
+                    // Ensure dimensions are even for H.264
+                    if (targetW % 2 !== 0) targetW--;
+                    if (targetH % 2 !== 0) targetH--;
+                }
+
+                config.width = targetW;
+                config.height = targetH;
+                previewCanvas.width = targetW;
+                previewCanvas.height = targetH;
+
+                // --- Step 2: Select Codec String ---
+                // High Res or High FPS needs higher Level (e.g. 5.1)
+                // 1080p @ 30/60 usually fine with Level 4.2 or 4.1
+                // 4K requires Level 5.1
+                let codecString = 'avc1.4d002a'; // Default: High Profile, Level 4.2 (Supports 1080p60)
+                
+                const totalPixels = targetW * targetH;
+                if (totalPixels > 2073600 || config.fps > 60) { // If > 1080p or High FPS
+                     codecString = 'avc1.640033'; // High Profile, Level 5.1 (Supports 4K)
+                     statusText.innerText = `High Res Detected. Using Level 5.1...`;
+                }
+
+                console.log(`Configuring Encoder: ${targetW}x${targetH} @ ${config.fps}fps using ${codecString}`);
+
+                // --- Step 3: Init Muxer (NOW with correct Dimensions) ---
+                const muxer = new Mp4Muxer.Muxer({
+                    target: new Mp4Muxer.ArrayBufferTarget(),
+                    video: {
+                        codec: 'avc', 
+                        width: targetW,
+                        height: targetH
+                    },
+                    fastStart: 'in-memory',
+                });
+
+                // --- Step 4: Init Encoder ---
+                const videoEncoder = new VideoEncoder({
+                    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+                    error: (e) => {
+                        console.error(e);
+                        statusText.innerText = "Encoding Error: " + e.message;
+                        alert("Encoding failed. Your browser may not support this resolution/codec combination.");
+                    }
+                });
+
+                // Check support before configuring
+                const supportConfig = {
+                    codec: codecString,
+                    width: targetW,
+                    height: targetH,
+                    bitrate: config.bitrate,
+                    framerate: config.fps
+                };
+                
+                try {
+                    const support = await VideoEncoder.isConfigSupported(supportConfig);
+                    if (!support.supported) {
+                         console.warn("Preferred config not supported, falling back to generic avc1");
+                         codecString = 'avc1.42001f'; // Fallback to basic
+                    }
+                } catch(e) {
+                    console.warn("Config check failed, trying anyway...");
+                }
+
+                videoEncoder.configure({
+                    codec: codecString,
+                    width: targetW,
+                    height: targetH,
+                    bitrate: config.bitrate,
+                    framerate: config.fps
+                });
+
+                // --- Step 5: Render Loop ---
+                let canvasContext = previewCanvas.getContext('2d');
+                let frameCount = 0;
+                const totalFrames = imageFiles.length;
+
+                // Cleanup first frame resources before loop
+                firstBitmap.close(); 
+
+                for (let i = 0; i < totalFrames; i++) {
+                    const filename = imageFiles[i];
+                    
+                    // 1. Extract
+                    const fileData = await zipContent.files[filename].async('blob');
+                    const bitmap = await createImageBitmap(fileData);
+                    
+                    // 2. Draw
+                    canvasContext.fillStyle = "#000";
+                    canvasContext.fillRect(0, 0, targetW, targetH);
+                    canvasContext.drawImage(bitmap, 0, 0, targetW, targetH);
+                    
+                    // 3. Create Frame
+                    const timestamp = (i * 1000000) / config.fps;
+                    const frame = new VideoFrame(previewCanvas, { timestamp: timestamp });
+                    
+                    // 4. Encode
+                    videoEncoder.encode(frame, { keyFrame: i % (config.fps * 2) === 0 });
+                    frame.close();
+                    bitmap.close(); 
+
+                    // UI Updates
+                    frameCount++;
+                    frameCounter.innerText = `${frameCount} / ${totalFrames}`;
+                    const pct = (frameCount / totalFrames) * 100;
+                    progressBar.style.width = `${pct}%`;
+
+                    // Backpressure Management
+                    if (videoEncoder.encodeQueueSize > 5) {
+                        await videoEncoder.flush();
+                    }
+
+                    // Yield to UI
+                    if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
+                }
+
+                statusText.innerText = "Finalizing Video...";
+                await videoEncoder.flush();
+                muxer.finalize();
+
+                // Download
+                const { buffer } = muxer.target;
+                const blob = new Blob([buffer], { type: 'video/mp4' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `sequence_${config.fps}fps.mp4`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                
+                statusText.innerText = "Done! Download started.";
+                processBtn.innerHTML = "Render Complete";
+                processBtn.classList.remove('bg-blue-600');
+                processBtn.classList.add('bg-green-600');
+
+            } catch (err) {
+                console.error(err);
+                statusText.innerText = "Error: " + err.message;
+                alert("An error occurred: " + err.message);
+                isProcessing = false;
+                processBtn.disabled = false;
+                processBtn.innerHTML = `<span id="btnText">Try Again</span>`;
+            } finally {
+                // Keep isProcessing true if success to prevent double clicks, 
+                // but if error caught above, we set it to false.
+                if(statusText.innerText.includes("Done")) isProcessing = false;
+            }
+        }
+
+    </script>
+</body>
+</html>
